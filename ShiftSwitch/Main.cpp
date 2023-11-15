@@ -1,229 +1,321 @@
+// Based on
 // https://github.com/MikalaiR/LSwitch
+// https://stackoverflow.com/questions/27720728/cant-send-wm-inputlangchangerequest-to-some-controls
 
-#include <stdio.h>
-#include <windows.h>
+#include <cstdio>
+#include "Windows.h"
 
-static const bool USE_LOG_FILE = FALSE;
-static const int LOG_MESSAGE_MAX_LENGTH = 1024 * 10;
-static HANDLE g_hShutdownEvent = NULL;
-static HHOOK g_hLowLevelKeyboardHook = NULL;
-static HANDLE g_hLogFile = NULL;
-static int g_nState = 0;
+static constexpr bool b_use_logging = FALSE;
+static constexpr int cc_log_message_max_length = 1024;
+static constexpr int cb_trail_size = 3; // \r \n 0
+static constexpr int cb_log_line_buffer_size = cc_log_message_max_length + cb_trail_size; // Buffer for ANSI chars
+static HANDLE g_h_shutdown_event = nullptr;
+static HHOOK g_h_low_level_keyboard_hook = nullptr;
+static HANDLE g_h_log_file = nullptr;
+static int g_n_state = 0;
+static wchar_t g_wsz_message[cc_log_message_max_length];
+static char g_sz_log_line[cb_log_line_buffer_size];
 
-void WriteMessageToLogFile(const wchar_t* pwszFormat, va_list varargs)
+// ReSharper disable once CppParameterMayBeConst
+void write_message_to_log_file(const wchar_t* pwsz_format, va_list varargs)
 {
-    wchar_t wszMessage[LOG_MESSAGE_MAX_LENGTH];
     vswprintf_s(
-        wszMessage,
-        LOG_MESSAGE_MAX_LENGTH,
-        pwszFormat,
+        g_wsz_message,
+        cc_log_message_max_length,
+        pwsz_format,
         varargs
     );
-    const int cbMultiByteLength = WideCharToMultiByte(
+    const int cb_multi_byte_length = WideCharToMultiByte(
         CP_ACP,
         0,
-        wszMessage,
+        g_wsz_message,
         -1,
-        NULL,
+        nullptr,
         0,
-        NULL,
-        FALSE
+        nullptr,
+        nullptr
     );
-    const int cbLogLineBufferSize = cbMultiByteLength + 3;
-    char* pszLogLine = new char[cbLogLineBufferSize];
-    memset(pszLogLine, 0, cbLogLineBufferSize);
-    const int nBytesWritten = WideCharToMultiByte(
+    int cb_current_log_line_size = cb_multi_byte_length + cb_trail_size;
+    if (cb_current_log_line_size > cb_log_line_buffer_size)
+    {
+        cb_current_log_line_size = cb_log_line_buffer_size;
+    }
+	memset(g_sz_log_line, 0, cb_current_log_line_size);
+    // ReSharper disable once CppDeclaratorNeverUsed
+    const int n_bytes_written = WideCharToMultiByte(
         CP_ACP,
         0,
-        wszMessage,
+        g_wsz_message,
         -1,
-        pszLogLine,
-        cbMultiByteLength,
-        NULL,
-        FALSE
+        g_sz_log_line,
+        cb_current_log_line_size - cb_trail_size,
+        nullptr,
+        nullptr
     );
-    strcat_s(pszLogLine, cbLogLineBufferSize, "\r\n");
-    DWORD dwNumberOfBytesWritten = 0;
+    strcat_s(g_sz_log_line, cb_current_log_line_size, "\r\n");
+    DWORD dw_number_of_bytes_written = 0;
     WriteFile(
-        g_hLogFile,
-        pszLogLine,
-        strlen(pszLogLine),
-        &dwNumberOfBytesWritten,
-        NULL
+        g_h_log_file,
+        g_sz_log_line,
+        static_cast<DWORD>(strlen(g_sz_log_line)),
+        &dw_number_of_bytes_written,
+        nullptr
     );
-    delete [] pszLogLine;
 }
 
-void LogMessage(const wchar_t* pwszFormat...)
+void log_message(const wchar_t* pwsz_format...)
 {
-    if (g_hLogFile == NULL)
-        return;
+    if (g_h_log_file == nullptr)
+    {
+    	return;
+    }
     va_list varargs;
-    va_start(varargs, pwszFormat);
-    WriteMessageToLogFile(pwszFormat, varargs);
-    FlushFileBuffers(g_hLogFile);
+    va_start(varargs, pwsz_format);
+    write_message_to_log_file(pwsz_format, varargs);
+    FlushFileBuffers(g_h_log_file);
     va_end(varargs);
 }
 
-void ExitWithError(const wchar_t* pwszMessage)
-{
-    MessageBox(
-        NULL,
-        pwszMessage,
-        L"Error",
-        MB_OK | MB_ICONERROR
-    );
-    ExitProcess(1);
+void exit_with_error(const wchar_t* pwsz_message)
+{ // NOLINT(clang-diagnostic-missing-noreturn)
+	MessageBox(
+		nullptr,
+		pwsz_message,
+		L"Error",
+		MB_OK | MB_ICONERROR
+	);
+	ExitProcess(1);
 }
 
-void CALLBACK ShutdownTimerCallback(
-    HWND hWnd,
-    UINT uMsg,
-    UINT_PTR idEvent,
-    DWORD dwTime
+void CALLBACK shutdown_timer_callback(
+    HWND h_wnd,
+    UINT u_msg,
+    UINT_PTR id_event,
+    DWORD dw_time
 )
 {
-    if (WaitForSingleObject(g_hShutdownEvent, 0) == WAIT_OBJECT_0)
+    if (WaitForSingleObject(g_h_shutdown_event, 0) == WAIT_OBJECT_0)
+    {
         PostQuitMessage(0);
+    }
 }
 
-void ClearState()
+void reset_state_to_zero()
 {
-    g_nState = 0;
+    g_n_state = 0;
 }
 
-void SetState1()
+void set_state_to_1()
 {
-    g_nState = 1;
+    g_n_state = 1;
 }
 
-bool HasState1()
+bool has_state_1()
 {
-    return g_nState == 1;
+    return g_n_state == 1;
 }
 
-void SwitchLanguage()
+/*
+void switch_language()
 {
-    HWND hWndTarget = GetForegroundWindow();
+    HWND h_wnd_target = GetForegroundWindow();
     AttachThreadInput(
         GetCurrentThreadId(),
-        GetWindowThreadProcessId(hWndTarget, NULL),
+        GetWindowThreadProcessId(h_wnd_target, nullptr),
         TRUE
     );
-    const HWND hWndThreadKeyboardFocus = GetFocus();
-    if (hWndThreadKeyboardFocus)
-        hWndTarget = hWndThreadKeyboardFocus;
-    if (hWndTarget)
+    const HWND h_wnd_thread_keyboard_focus = GetFocus();  // NOLINT(misc-misplaced-const)
+    if (h_wnd_thread_keyboard_focus != nullptr)
+    {
+        h_wnd_target = h_wnd_thread_keyboard_focus;
+    }
+    if (h_wnd_target != nullptr)
+    {
         PostMessage(
-            hWndTarget,
+            h_wnd_target,
             WM_INPUTLANGCHANGEREQUEST,
             0,
             HKL_NEXT
         );
+    }
+}
+*/
+
+void set_next_keyboard_layout()
+{
+    HWND h_wnd_target = nullptr;
+    const DWORD dw_foreground_thread_id = GetWindowThreadProcessId(GetForegroundWindow(), nullptr);
+    const DWORD dw_current_thread_id = GetCurrentThreadId();
+    GUITHREADINFO gui_thread_info{};
+    gui_thread_info.cbSize = sizeof gui_thread_info;
+    const BOOL b_gui_thread_info_success = GetGUIThreadInfo(dw_foreground_thread_id, &gui_thread_info);
+    AttachThreadInput(dw_foreground_thread_id, dw_current_thread_id, TRUE);
+    const HWND h_wnd_thread_keyboard_focus = GetFocus();  // NOLINT(misc-misplaced-const)
+    AttachThreadInput(dw_foreground_thread_id, dw_current_thread_id, FALSE);
+    if (b_gui_thread_info_success)
+    {
+        if (gui_thread_info.hwndCaret != nullptr)
+        {
+	        h_wnd_target = gui_thread_info.hwndCaret;
+        }
+        else if (gui_thread_info.hwndFocus != nullptr)
+        {
+	        h_wnd_target = gui_thread_info.hwndFocus;
+        }
+        else if (h_wnd_thread_keyboard_focus != nullptr)
+        {
+	        h_wnd_target = h_wnd_thread_keyboard_focus;
+        }
+        else if (gui_thread_info.hwndActive != nullptr)
+        {
+	        h_wnd_target = gui_thread_info.hwndActive;
+        }
+    }
+    else
+    {
+        h_wnd_target = h_wnd_thread_keyboard_focus;
+    }
+    if (h_wnd_target == nullptr)
+    {
+	    h_wnd_target = GetForegroundWindow();
+    }
+    if (h_wnd_target != nullptr)
+    {
+	    PostMessage(
+	        h_wnd_target,
+	        WM_INPUTLANGCHANGEREQUEST,
+	        INPUTLANGCHANGE_FORWARD,
+	        HKL_NEXT
+	    );
+    }
 }
 
-LRESULT CALLBACK LowLevelKeyboardHookProc(
-    int nCode,
-    WPARAM wParam,
-    LPARAM lParam
+LRESULT CALLBACK low_level_keyboard_hook_proc(
+	const int n_code,
+	const WPARAM w_param,
+	const LPARAM l_param
 )
 {
-    if (nCode == HC_ACTION)
+    if (n_code == HC_ACTION)
     {
-        KBDLLHOOKSTRUCT* ks = (KBDLLHOOKSTRUCT*) lParam;
-        // LogMessage(L"vkCode=%ld", ks->vkCode);
+	    const auto khs = reinterpret_cast<KBDLLHOOKSTRUCT*>(l_param); // NOLINT(performance-no-int-to-ptr)
         if (
-            ks->vkCode == VK_LSHIFT
-            || ks->vkCode == VK_RSHIFT
+            khs->vkCode == VK_LSHIFT
+            || khs->vkCode == VK_RSHIFT
         )
             if (
-                (wParam == WM_KEYDOWN)
-                && ((GetKeyState(VK_SHIFT) & 0x8000) == 0) // Shift
-                && ((GetKeyState(VK_CONTROL) & 0x8000) == 0) // Ctrl
-                && ((GetKeyState(VK_MENU) & 0x8000) == 0) // Alt
-                && ((GetKeyState(VK_LWIN) & 0x8000) == 0)  // Left-Win
-                && ((GetKeyState(VK_RWIN) & 0x8000) == 0)  // Right-Win
+                w_param == WM_KEYDOWN
+                && (GetKeyState(VK_SHIFT) & 0x8000) == 0 // Shift
+                && (GetKeyState(VK_CONTROL) & 0x8000) == 0 // Ctrl
+                && (GetKeyState(VK_MENU) & 0x8000) == 0 // Alt
+                && (GetKeyState(VK_LWIN) & 0x8000) == 0  // Left-Win
+                && (GetKeyState(VK_RWIN) & 0x8000) == 0  // Right-Win
             )
-                SetState1();
+                set_state_to_1();
             else if (
-                (wParam == WM_KEYUP)
-                && HasState1()
+                w_param == WM_KEYUP
+                && has_state_1()
             )
             {
-                SwitchLanguage();
-                ClearState();
+				// log_message(L"vkCode=%ld", khs->vkCode);
+                set_next_keyboard_layout();
+                reset_state_to_zero();
                 // return 1;
             }
             else
-                ClearState();
+                reset_state_to_zero();
         else
-            ClearState();
+            reset_state_to_zero();
     }
     return CallNextHookEx(
-        g_hLowLevelKeyboardHook,
-        nCode,
-        wParam,
-        lParam
+        g_h_low_level_keyboard_hook,
+        n_code,
+        w_param,
+        l_param
     );
 }
 
 int WINAPI WinMain(
-    _In_ HINSTANCE hInstance,
-    _In_opt_ HINSTANCE hPrevInstance,
-    _In_ LPSTR lpCmdLine,
-    _In_ int nCmdShow
+	// ReSharper disable CppInconsistentNaming
+	// ReSharper disable CppParameterNeverUsed
+	_In_ HINSTANCE hInstance,
+	_In_opt_ HINSTANCE hPrevInstance,
+	_In_ LPSTR lpCmdLine,
+	_In_ int nShowCmd
+	// ReSharper restore CppInconsistentNaming
+	// ReSharper restore CppParameterNeverUsed
 )
 {
-    g_hShutdownEvent = CreateEvent(
-        NULL,
+    g_h_shutdown_event = CreateEvent(
+	    nullptr,
         TRUE,
         FALSE,
         L"ShiftSwitchShutdownEvent"
     );
-    if (g_hShutdownEvent == NULL)
-        ExitWithError(L"CreateEvent()");
+    if (g_h_shutdown_event == nullptr)
+    {
+        exit_with_error(L"CreateEvent()");
+    }
     if (GetLastError() == ERROR_ALREADY_EXISTS)
     {
-        SetEvent(g_hShutdownEvent);
-        goto QUIT;
+        if (g_h_shutdown_event != nullptr)
+        {
+			SetEvent(g_h_shutdown_event);
+        }
+        goto QUIT;  // NOLINT(cppcoreguidelines-avoid-goto, hicpp-avoid-goto)
     }
     if (
         SetTimer(
-            NULL,
+	        nullptr,
             0,
             500,
-            ShutdownTimerCallback
+            shutdown_timer_callback
         ) == 0
     )
-        ExitWithError(L"SetTimer()");
-    g_hLowLevelKeyboardHook = SetWindowsHookEx(
+    {
+        exit_with_error(L"SetTimer()");
+    }
+    g_h_low_level_keyboard_hook = SetWindowsHookEx(
         WH_KEYBOARD_LL,
-        LowLevelKeyboardHookProc,
-        GetModuleHandle(0),
+        low_level_keyboard_hook_proc,
+        GetModuleHandle(nullptr),
         0
     );
-    if (!g_hLowLevelKeyboardHook)
-        ExitWithError(L"SetWindowsHookEx()");
-    if (USE_LOG_FILE)
-        g_hLogFile = CreateFile(
+    if (!g_h_low_level_keyboard_hook)
+    {
+    	exit_with_error(L"SetWindowsHookEx()");
+    }
+    if (b_use_logging)
+    // ReSharper disable once CppUnreachableCode
+    {
+        g_h_log_file = CreateFile(
             L"ShiftSwitch.log",
             FILE_APPEND_DATA,
             FILE_SHARE_READ | FILE_SHARE_WRITE,
-            NULL,
+            nullptr,
             OPEN_ALWAYS,
             FILE_ATTRIBUTE_NORMAL,
-            NULL
+            nullptr
         );
+    }
     MSG msg;
-    while (GetMessage(&msg, NULL, 0, 0))
+    while (GetMessage(&msg, nullptr, 0, 0))
     {
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
-    UnhookWindowsHookEx(g_hLowLevelKeyboardHook);
-    if (g_hLogFile != NULL)
-        CloseHandle(g_hLogFile);
+    if (g_h_low_level_keyboard_hook != nullptr)
+    {
+		UnhookWindowsHookEx(g_h_low_level_keyboard_hook);
+    }
+    if (g_h_log_file != nullptr)
+    {
+    	CloseHandle(g_h_log_file);
+    }
 QUIT:
-    CloseHandle(g_hShutdownEvent);
+    if (g_h_shutdown_event != nullptr)
+    {
+		CloseHandle(g_h_shutdown_event);
+    }
     ExitProcess(0);
 }
