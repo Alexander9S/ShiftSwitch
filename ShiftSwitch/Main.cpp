@@ -40,7 +40,7 @@ void write_message_to_log_file(const wchar_t* pwsz_format, va_list varargs)
     {
         cb_current_log_line_size = cb_log_line_buffer_size;
     }
-	memset(g_sz_log_line, 0, cb_current_log_line_size);
+    memset(g_sz_log_line, 0, cb_current_log_line_size);
     // ReSharper disable once CppDeclaratorNeverUsed
     const int n_bytes_written = WideCharToMultiByte(
         CP_ACP,
@@ -67,7 +67,7 @@ void log_message(const wchar_t* pwsz_format...)
 {
     if (g_h_log_file == nullptr)
     {
-    	return;
+        return;
     }
     va_list varargs;
     va_start(varargs, pwsz_format);
@@ -78,13 +78,13 @@ void log_message(const wchar_t* pwsz_format...)
 
 void exit_with_error(const wchar_t* pwsz_message)
 { // NOLINT(clang-diagnostic-missing-noreturn)
-	MessageBox(
-		nullptr,
-		pwsz_message,
-		L"Error",
-		MB_OK | MB_ICONERROR
-	);
-	ExitProcess(1);
+    MessageBox(
+        nullptr,
+        pwsz_message,
+        L"Error",
+        MB_OK | MB_ICONERROR
+    );
+    ExitProcess(1);
 }
 
 void CALLBACK shutdown_timer_callback(
@@ -156,19 +156,19 @@ void set_next_keyboard_layout()
     {
         if (gui_thread_info.hwndCaret != nullptr)
         {
-	        h_wnd_target = gui_thread_info.hwndCaret;
+            h_wnd_target = gui_thread_info.hwndCaret;
         }
         else if (gui_thread_info.hwndFocus != nullptr)
         {
-	        h_wnd_target = gui_thread_info.hwndFocus;
+            h_wnd_target = gui_thread_info.hwndFocus;
         }
         else if (h_wnd_thread_keyboard_focus != nullptr)
         {
-	        h_wnd_target = h_wnd_thread_keyboard_focus;
+            h_wnd_target = h_wnd_thread_keyboard_focus;
         }
         else if (gui_thread_info.hwndActive != nullptr)
         {
-	        h_wnd_target = gui_thread_info.hwndActive;
+            h_wnd_target = gui_thread_info.hwndActive;
         }
     }
     else
@@ -177,28 +177,28 @@ void set_next_keyboard_layout()
     }
     if (h_wnd_target == nullptr)
     {
-	    h_wnd_target = GetForegroundWindow();
+        h_wnd_target = GetForegroundWindow();
     }
     if (h_wnd_target != nullptr)
     {
-	    PostMessage(
-	        h_wnd_target,
-	        WM_INPUTLANGCHANGEREQUEST,
-	        INPUTLANGCHANGE_FORWARD,
-	        HKL_NEXT
-	    );
+        PostMessage(
+            h_wnd_target,
+            WM_INPUTLANGCHANGEREQUEST,
+            INPUTLANGCHANGE_FORWARD,
+            HKL_NEXT
+        );
     }
 }
 
 LRESULT CALLBACK low_level_keyboard_hook_proc(
-	const int n_code,
-	const WPARAM w_param,
-	const LPARAM l_param
+    const int n_code,
+    const WPARAM w_param,
+    const LPARAM l_param
 )
 {
     if (n_code == HC_ACTION)
     {
-	    const auto khs = reinterpret_cast<KBDLLHOOKSTRUCT*>(l_param); // NOLINT(performance-no-int-to-ptr)
+        const auto khs = reinterpret_cast<KBDLLHOOKSTRUCT*>(l_param); // NOLINT(performance-no-int-to-ptr)
         if (
             khs->vkCode == VK_LSHIFT
             || khs->vkCode == VK_RSHIFT
@@ -217,10 +217,9 @@ LRESULT CALLBACK low_level_keyboard_hook_proc(
                 && has_state_1()
             )
             {
-				// log_message(L"vkCode=%ld", khs->vkCode);
+                // log_message(L"vkCode=%ld", khs->vkCode);
                 set_next_keyboard_layout();
                 reset_state_to_zero();
-                // return 1;
             }
             else
                 reset_state_to_zero();
@@ -236,18 +235,18 @@ LRESULT CALLBACK low_level_keyboard_hook_proc(
 }
 
 int WINAPI WinMain(
-	// ReSharper disable CppInconsistentNaming
-	// ReSharper disable CppParameterNeverUsed
-	_In_ HINSTANCE hInstance,
-	_In_opt_ HINSTANCE hPrevInstance,
-	_In_ LPSTR lpCmdLine,
-	_In_ int nShowCmd
-	// ReSharper restore CppInconsistentNaming
-	// ReSharper restore CppParameterNeverUsed
+    // ReSharper disable CppInconsistentNaming
+    // ReSharper disable CppParameterNeverUsed
+    _In_ HINSTANCE hInstance,
+    _In_opt_ HINSTANCE hPrevInstance,
+    _In_ LPSTR lpCmdLine,
+    _In_ int nShowCmd
+    // ReSharper restore CppInconsistentNaming
+    // ReSharper restore CppParameterNeverUsed
 )
 {
     g_h_shutdown_event = CreateEvent(
-	    nullptr,
+        nullptr,
         TRUE,
         FALSE,
         L"ShiftSwitchShutdownEvent"
@@ -260,13 +259,13 @@ int WINAPI WinMain(
     {
         if (g_h_shutdown_event != nullptr)
         {
-			SetEvent(g_h_shutdown_event);
+            SetEvent(g_h_shutdown_event);
         }
         goto QUIT;  // NOLINT(cppcoreguidelines-avoid-goto, hicpp-avoid-goto)
     }
     if (
         SetTimer(
-	        nullptr,
+            nullptr,
             0,
             500,
             shutdown_timer_callback
@@ -283,7 +282,7 @@ int WINAPI WinMain(
     );
     if (!g_h_low_level_keyboard_hook)
     {
-    	exit_with_error(L"SetWindowsHookEx()");
+        exit_with_error(L"SetWindowsHookEx()");
     }
     if (b_use_logging)
     // ReSharper disable once CppUnreachableCode
@@ -306,16 +305,16 @@ int WINAPI WinMain(
     }
     if (g_h_low_level_keyboard_hook != nullptr)
     {
-		UnhookWindowsHookEx(g_h_low_level_keyboard_hook);
+        UnhookWindowsHookEx(g_h_low_level_keyboard_hook);
     }
     if (g_h_log_file != nullptr)
     {
-    	CloseHandle(g_h_log_file);
+        CloseHandle(g_h_log_file);
     }
 QUIT:
     if (g_h_shutdown_event != nullptr)
     {
-		CloseHandle(g_h_shutdown_event);
+        CloseHandle(g_h_shutdown_event);
     }
     ExitProcess(0);
 }
